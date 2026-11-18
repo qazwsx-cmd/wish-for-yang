@@ -1,0 +1,1173 @@
+import '../../support/material_tooltip_finder.dart';
+
+import 'dart:async';
+import 'dart:io';
+import 'dart:ui' as ui;
+
+import 'package:bili_player/bili_player.dart';
+import 'package:bilisail/core/platform/window_service.dart';
+import 'package:bilisail/core/presentation/workspace_activity.dart';
+import 'package:bilisail/app/theme.dart';
+import 'package:bilisail/domain/request_cancellation.dart';
+import 'package:bilisail/domain/video.dart';
+import 'package:bilisail/features/playback/application/playback_session.dart';
+import 'package:bilisail/features/playback/application/playback_listening_mode.dart';
+import 'package:bilisail/features/playback/domain/content_playback.dart';
+import 'package:bilisail/features/playback/domain/playback_repository.dart';
+import 'package:bilisail/features/playback/presentation/audio_playback_view.dart';
+import 'package:bilisail/features/playback/presentation/playback_panel.dart';
+import 'package:bilisail/features/settings/domain/app_settings.dart';
+import 'package:material_ui/material_ui.dart';
+import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+import '../../support/fake_video_output.dart';
+import '../../support/input_test_app.dart';
+
+void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  setUpAll(() async {
+    await (FontLoader('HarmonyOS Sans')..addFont(
+          rootBundle.load(
+            'assets/fonts/harmonyos_sans/HarmonyOS_Sans_SC_Regular.ttf',
+          ),
+        ))
+        .load();
+    await (FontLoader(
+      'MaterialIcons',
+    )..addFont(rootBundle.load('fonts/MaterialIcons-Regular.otf'))).load();
+  });
+  late _Engine engine;
+  late _Repository repository;
+  late PlaybackSession session;
+  late PlaybackListeningMode listeningMode;
+
+  setUp(() {
+    engine = _Engine();
+    repository = _Repository();
+    listeningMode = PlaybackListeningMode();
+    session = _session(engine, repository, listeningMode);
+  });
+  tearDown(() => session.close());
+
+  Future<void> mountPlayer(
+    WidgetTester tester, {
+    bool backgroundPlayback = false,
+    bool active = true,
+    bool desktop = false,
+    ContentPlaybackTarget? target,
+  }) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [playbackSessionProvider.overrideWithValue(session)],
+        child: MaterialApp(
+          home: Scaffold(
+            body: WorkspaceActivity(
+              active: active,
+              child: PlaybackPanel(
+                detail: _detail,
+                part: _part,
+                target: target,
+                settings: AppSettings(
+                  backgroundPlayback: backgroundPlayback,
+                  danmakuEnabled: false,
+                  resumePlayback: false,
+                ),
+                window: desktop ? _Window() : _AndroidWindow(),
+                onToggleComments: () {},
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    for (var i = 0; i < 12; i++) {
+      // Settings/source rebuilds are explicitly driven even while the simulated
+      // platform has stopped scheduling frames in the background.
+      tester.binding.scheduleForcedFrame();
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+  }
+
+  for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
+    for (final target in <ContentPlaybackTarget?>[
+      null,
+      const PgcPlaybackTarget('42', cid: 'one'),
+      const OfflinePlaybackTarget('local'),
+      const LivePlaybackTarget('42'),
+    ]) {
+      testWidgets('background disabled pauses $platform target=$target', (
+        tester,
+      ) async {
+        addTearDown(() {
+          tester.binding.handleAppLifecycleStateChanged(
+            AppLifecycleState.resumed,
+          );
+        });
+        await mountPlayer(tester, target: target);
+        await session.seek(const Duration(minutes: 3));
+        await session.setRate(1.5);
+        await session.setVolume(32);
+        final opens = engine.sources.length;
+        final generation = session.sourceGeneration;
+        final before = engine.currentSnapshot;
+        tester.binding.handleAppLifecycleStateChanged(
+          AppLifecycleState.inactive,
+        );
+        await tester.pump();
+        expect(engine.currentSnapshot.desiredPlaying, isTrue);
+        tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+        await tester.pump();
+        expect(engine.currentSnapshot.desiredPlaying, isFalse);
+        tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+        await tester.pump();
+        expect(engine.currentSnapshot.phase, PlaybackPhase.paused);
+        tester.binding.handleAppLifecycleStateChanged(
+          AppLifecycleState.resumed,
+        );
+        await tester.pump();
+        expect(engine.currentSnapshot.desiredPlaying, isFalse);
+        expect(engine.currentSnapshot.position, before.position);
+        expect(engine.currentSnapshot.rate, before.rate);
+        expect(engine.currentSnapshot.volume, before.volume);
+        expect(engine.sources, hasLength(opens));
+        expect(session.sourceGeneration, generation);
+        await tester.pumpWidget(const SizedBox.shrink());
+      }, variant: TargetPlatformVariant({platform}));
+    }
+  }
+
+  for (final paused in [false, true]) {
+    testWidgets(
+      'background disabled also pauses manual listening paused=$paused',
+      (tester) async {
+        addTearDown(() {
+          tester.binding.handleAppLifecycleStateChanged(
+            AppLifecycleState.resumed,
+          );
+        });
+        await mountPlayer(tester);
+        await session.setAudioOnly(true);
+        if (paused) await session.pause();
+        final opens = engine.sources.length;
+        tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+        await tester.pump();
+        expect(engine.currentSnapshot.desiredPlaying, isFalse);
+        tester.binding.handleAppLifecycleStateChanged(
+          AppLifecycleState.resumed,
+        );
+        await tester.pump();
+        expect(session.audioOnly, isTrue);
+        expect(engine.currentSnapshot.desiredPlaying, isFalse);
+        expect(engine.sources, hasLength(opens));
+        await tester.pumpWidget(const SizedBox.shrink());
+      },
+    );
+  }
+
+  testWidgets('desktop keeps playing when background playback is disabled', (
+    tester,
+  ) async {
+    addTearDown(() {
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    });
+    await mountPlayer(tester, desktop: true);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    await tester.pump();
+    expect(engine.currentSnapshot.desiredPlaying, isTrue);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets(
+    'background disabled pauses the owner behind another workspace page',
+    (tester) async {
+      addTearDown(() {
+        tester.binding.handleAppLifecycleStateChanged(
+          AppLifecycleState.resumed,
+        );
+      });
+      await mountPlayer(tester);
+      await mountPlayer(tester, active: false);
+      expect(engine.currentSnapshot.desiredPlaying, isTrue);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      await tester.pump();
+      expect(engine.currentSnapshot.desiredPlaying, isFalse);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
+
+  testWidgets(
+    'disabling in background pauses immediately without resuming on enable',
+    (tester) async {
+      addTearDown(() {
+        tester.binding.handleAppLifecycleStateChanged(
+          AppLifecycleState.resumed,
+        );
+      });
+      await mountPlayer(tester, backgroundPlayback: true);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      await tester.pump();
+      expect(engine.currentSnapshot.desiredPlaying, isTrue);
+      await mountPlayer(tester);
+      expect(engine.currentSnapshot.desiredPlaying, isFalse);
+      await mountPlayer(tester, backgroundPlayback: true);
+      expect(engine.currentSnapshot.desiredPlaying, isFalse);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
+
+  for (final initiallyBackground in [false, true]) {
+    testWidgets(
+      'background disabled blocks late autoplay initiallyBackground=$initiallyBackground',
+      (tester) async {
+        addTearDown(() {
+          tester.binding.handleAppLifecycleStateChanged(
+            AppLifecycleState.resumed,
+          );
+        });
+        final pending = Completer<PlaybackMedia>();
+        repository.pending = pending;
+        if (initiallyBackground) {
+          tester.binding.handleAppLifecycleStateChanged(
+            AppLifecycleState.paused,
+          );
+        }
+        await mountPlayer(tester);
+        if (!initiallyBackground) {
+          tester.binding.handleAppLifecycleStateChanged(
+            AppLifecycleState.paused,
+          );
+        }
+        pending.complete(repository.media);
+        for (var i = 0; i < 12; i++) {
+          await tester.pump(const Duration(milliseconds: 16));
+        }
+        expect(engine.sources, hasLength(1));
+        expect(engine.currentSnapshot.desiredPlaying, isFalse);
+        tester.binding.handleAppLifecycleStateChanged(
+          AppLifecycleState.resumed,
+        );
+        await tester.pump();
+        expect(engine.currentSnapshot.desiredPlaying, isFalse);
+        await tester.pumpWidget(const SizedBox.shrink());
+      },
+    );
+  }
+
+  testWidgets('listening uses custom rate options', (tester) async {
+    session.configureSettings(
+      AppSettings(playbackRates: [1.75, 4], resumePlayback: false),
+    );
+    await session.open(_detail, _part);
+    await session.setAudioOnly(true);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ListenableBuilder(
+          listenable: Listenable.merge([session, session.snapshots]),
+          builder: (_, _) => AudioPlaybackView(
+            session: session,
+            snapshot: session.snapshots.value,
+            fullScreen: false,
+            onFullScreen: () {},
+            navigation: const SizedBox.shrink(),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(findMaterialTooltip('播放速度'));
+    await tester.pumpAndSettle();
+    expect(find.text('1.25x'), findsNothing);
+    await tester.tap(
+      find.widgetWithText(CheckedPopupMenuItem<double>, '1.75x'),
+    );
+    await tester.pumpAndSettle();
+    expect(engine.currentSnapshot.rate, 1.75);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  for (final manual in [false, true]) {
+    for (final paused in [false, true]) {
+      testWidgets(
+        'Android retains source in background manual=$manual paused=$paused',
+        (tester) async {
+          await tester.pumpWidget(
+            ProviderScope(
+              overrides: [playbackSessionProvider.overrideWithValue(session)],
+              child: MaterialApp(
+                home: Scaffold(
+                  body: PlaybackPanel(
+                    detail: _detail,
+                    part: _part,
+                    settings: AppSettings(
+                      danmakuEnabled: false,
+                      resumePlayback: false,
+                    ),
+                    window: _AndroidWindow(),
+                    onToggleComments: () {},
+                  ),
+                ),
+              ),
+            ),
+          );
+          for (var i = 0; i < 12; i++) {
+            await tester.pump(const Duration(milliseconds: 16));
+          }
+          if (manual) await session.setAudioOnly(true);
+          await session.seek(const Duration(minutes: 3));
+          await session.setRate(1.5);
+          await session.setVolume(32);
+          if (paused) await session.pause();
+          final generation = session.sourceGeneration;
+          final nativeGeneration = engine.currentSnapshot.generation;
+          final source = engine.sources.last;
+          final opens = engine.sources.length;
+          try {
+            tester.binding.handleAppLifecycleStateChanged(
+              AppLifecycleState.inactive,
+            );
+            tester.binding.handleAppLifecycleStateChanged(
+              AppLifecycleState.hidden,
+            );
+            tester.binding.handleAppLifecycleStateChanged(
+              AppLifecycleState.paused,
+            );
+            await tester.pump();
+            expect(session.audioOnly, manual);
+            expect(engine.sources, hasLength(opens));
+            expect(engine.sources.last, same(source));
+            expect(engine.currentSnapshot.desiredPlaying, !paused);
+            tester.binding.handleAppLifecycleStateChanged(
+              AppLifecycleState.hidden,
+            );
+            tester.binding.handleAppLifecycleStateChanged(
+              AppLifecycleState.inactive,
+            );
+            tester.binding.handleAppLifecycleStateChanged(
+              AppLifecycleState.resumed,
+            );
+            await tester.pump();
+            expect(session.sourceGeneration, generation);
+            expect(engine.currentSnapshot.generation, nativeGeneration);
+            expect(engine.sources, hasLength(opens));
+            expect(session.audioOnly, manual);
+            expect(engine.currentSnapshot.position, const Duration(minutes: 3));
+            expect(engine.currentSnapshot.rate, 1.5);
+            expect(engine.currentSnapshot.volume, 32);
+            expect(engine.currentSnapshot.desiredPlaying, !paused);
+          } finally {
+            tester.binding.handleAppLifecycleStateChanged(
+              AppLifecycleState.resumed,
+            );
+            await tester.pumpWidget(const SizedBox.shrink());
+          }
+        },
+      );
+    }
+  }
+
+  testWidgets(
+    'Android background retains progressive media and playing intent',
+    (tester) async {
+      repository.media = _media(
+        kind: PlaybackMediaKind.progressive,
+        audio: false,
+      );
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [playbackSessionProvider.overrideWithValue(session)],
+          child: MaterialApp(
+            home: Scaffold(
+              body: PlaybackPanel(
+                detail: _detail,
+                part: _part,
+                settings: AppSettings(
+                  danmakuEnabled: false,
+                  resumePlayback: false,
+                ),
+                window: _AndroidWindow(),
+                onToggleComments: () {},
+              ),
+            ),
+          ),
+        ),
+      );
+      for (var i = 0; i < 12; i++) {
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      final source = engine.sources.last;
+      final generation = engine.currentSnapshot.generation;
+      try {
+        tester.binding.handleAppLifecycleStateChanged(
+          AppLifecycleState.inactive,
+        );
+        tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+        tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+        await tester.pump();
+        expect(engine.sources, hasLength(1));
+        expect(engine.sources.last, same(source));
+        expect(engine.currentSnapshot.generation, generation);
+        expect(engine.currentSnapshot.desiredPlaying, isTrue);
+      } finally {
+        tester.binding.handleAppLifecycleStateChanged(
+          AppLifecycleState.resumed,
+        );
+        await tester.pumpWidget(const SizedBox.shrink());
+      }
+    },
+  );
+
+  testWidgets('background during source resolution keeps the video request', (
+    tester,
+  ) async {
+    final pending = Completer<PlaybackMedia>();
+    repository.pending = pending;
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [playbackSessionProvider.overrideWithValue(session)],
+        child: MaterialApp(
+          home: Scaffold(
+            body: PlaybackPanel(
+              detail: _detail,
+              part: _part,
+              settings: AppSettings(
+                danmakuEnabled: false,
+                resumePlayback: false,
+              ),
+              window: _AndroidWindow(),
+              onToggleComments: () {},
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    try {
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      pending.complete(repository.media);
+      for (var i = 0; i < 12; i++) {
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      expect(engine.sources, hasLength(1));
+      expect(engine.sources.single, isA<DashPairSource>());
+      expect(session.audioOnly, isFalse);
+      expect(engine.currentSnapshot.desiredPlaying, isTrue);
+    } finally {
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pumpWidget(const SizedBox.shrink());
+    }
+  });
+
+  for (final target in [
+    null,
+    const PgcPlaybackTarget('42', cid: 'one'),
+    const OfflinePlaybackTarget('local'),
+  ]) {
+    for (final paused in [false, true]) {
+      test(
+        'audio stream preserves playback intent and preferences target=$target paused=$paused',
+        () async {
+          await session.open(_detail, _part, target: target);
+          await session.seek(const Duration(seconds: 35));
+          await session.setRate(1.5);
+          await session.setVolume(31);
+          if (paused) await session.pause();
+          await session.setAudioOnly(true);
+          expect(session.audioOnly, isTrue);
+          final audio = engine.sources.last as ProgressiveSource;
+          expect(audio.media.uri, repository.media.audio?.urls.first);
+          expect(audio.media.requestPolicy.headers, repository.media.headers);
+          expect(engine.currentSnapshot.position, const Duration(seconds: 35));
+          expect(engine.currentSnapshot.rate, 1.5);
+          expect(engine.currentSnapshot.volume, 31);
+          expect(engine.currentSnapshot.desiredPlaying, !paused);
+          final comments = repository.commentRequests;
+          engine.publish(
+            engine.currentSnapshot.copyWith(
+              position: const Duration(minutes: 7),
+            ),
+          );
+          expect(repository.commentRequests, comments);
+          await session.setAudioOnly(false);
+          expect(engine.sources.last, isA<DashPairSource>());
+          expect(engine.currentSnapshot.position, const Duration(minutes: 7));
+          expect(engine.currentSnapshot.desiredPlaying, !paused);
+        },
+      );
+    }
+  }
+
+  test('failed audio open preserves listening mode on manual retry', () async {
+    await session.open(_detail, _part);
+    engine.failNextAudio = true;
+    await session.setAudioOnly(true);
+    final sources = engine.sources.skip(1).cast<ProgressiveSource>();
+    expect(sources.map((source) => source.media.uri), [
+      repository.media.audio!.urls.first,
+    ]);
+    await session.retry();
+    expect(session.audioOnly, isTrue);
+    expect(engine.sources.last, isA<ProgressiveSource>());
+  });
+
+  test('navigation and next parts follow the global choice instead of old checkpoints', () async {
+    final first = Object(), second = Object();
+    session.attach(first);
+    session.attach(second);
+    await session.activate(first, _detail, _part);
+    await session.setAudioOnly(true);
+    await session.activate(
+      first,
+      _detail,
+      const VideoPart(
+        cid: 'two',
+        page: 2,
+        title: '第二集',
+        duration: Duration(minutes: 10),
+      ),
+    );
+    expect(session.audioOnly, isTrue);
+    await session.activate(
+      second,
+      const VideoDetail(
+        summary: VideoSummary(
+          id: VideoId('BV1other12345'),
+          title: '其他视频',
+          coverUrl: '',
+          author: 'UP',
+          duration: Duration(minutes: 10),
+        ),
+        description: '',
+        parts: [_part],
+      ),
+      _part,
+    );
+    expect(session.audioOnly, isTrue);
+    await session.setAudioOnly(false);
+    await session.activate(
+      first,
+      _detail,
+      const VideoPart(
+        cid: 'two',
+        page: 2,
+        title: '第二集',
+        duration: Duration(minutes: 10),
+      ),
+    );
+    expect(session.audioOnly, isFalse);
+    await session.stop();
+    expect(session.audioOnly, isFalse);
+  });
+
+  test('listening synchronizes existing and newly created sessions', () async {
+    final secondEngine = _Engine();
+    final second = _session(secondEngine, _Repository(), listeningMode);
+    addTearDown(second.close);
+    await session.open(_detail, _part);
+    await second.open(
+      _detail,
+      _part,
+      target: const PgcPlaybackTarget('42', cid: 'one'),
+    );
+    await session.seek(const Duration(seconds: 35));
+    await second.seek(const Duration(seconds: 65));
+    await second.pause();
+    await second.setRate(1.5);
+    await second.setVolume(31);
+    await session.setAudioOnly(true);
+    expect(second.audioOnly, isTrue);
+    expect(secondEngine.sources.last, isA<ProgressiveSource>());
+    expect(secondEngine.currentSnapshot.position, const Duration(seconds: 65));
+    expect(secondEngine.currentSnapshot.desiredPlaying, isFalse);
+    expect(secondEngine.currentSnapshot.rate, 1.5);
+    expect(secondEngine.currentSnapshot.volume, 31);
+    expect(engine.currentSnapshot.position, const Duration(seconds: 35));
+    expect(engine.currentSnapshot.desiredPlaying, isTrue);
+
+    final thirdEngine = _Engine();
+    final third = _session(thirdEngine, _Repository(), listeningMode);
+    addTearDown(third.close);
+    await third.open(
+      _detail,
+      _part,
+      target: const OfflinePlaybackTarget('local'),
+    );
+    expect(third.audioOnly, isTrue);
+    expect(thirdEngine.sources.last, isA<ProgressiveSource>());
+    await second.setAudioOnly(false);
+    for (final current in [session, second, third]) {
+      expect(current.audioOnly, isFalse);
+    }
+    for (final current in [engine, secondEngine, thirdEngine]) {
+      expect(current.sources.last, isA<DashPairSource>());
+    }
+  });
+
+  test(
+    'stop and close retain the choice, while a new run starts in video',
+    () async {
+      await session.open(_detail, _part);
+      await session.setAudioOnly(true);
+      await session.stop();
+      final stoppedOpens = engine.sources.length;
+      await listeningMode.select(false);
+      await listeningMode.select(true);
+      expect(engine.sources.length, stoppedOpens);
+      await session.open(_detail, _part);
+      expect(session.audioOnly, isTrue);
+      await session.close();
+      final opens = engine.sources.length;
+      final next = _session(_Engine(), _Repository(), listeningMode);
+      addTearDown(next.close);
+      await next.open(_detail, _part);
+      expect(next.audioOnly, isTrue);
+      await next.setAudioOnly(false);
+      expect(engine.sources.length, opens);
+
+      // An independent application lifetime gets its own default mode.
+      await next.setAudioOnly(true);
+      final restarted = _session(
+        _Engine(),
+        _Repository(),
+        PlaybackListeningMode(),
+      );
+      addTearDown(restarted.close);
+      await restarted.open(_detail, _part);
+      expect(restarted.audioOnly, isFalse);
+    },
+  );
+
+  test(
+    'late listening responses cannot replace a newer global video choice',
+    () async {
+      final otherRepository = _Repository();
+      final otherEngine = _Engine();
+      final other = _session(otherEngine, otherRepository, listeningMode);
+      addTearDown(other.close);
+      await session.open(_detail, _part);
+      await other.open(_detail, _part);
+      final first = repository.pending = Completer<PlaybackMedia>();
+      final second = otherRepository.pending = Completer<PlaybackMedia>();
+      final listening = session.setAudioOnly(true);
+      await Future<void>.delayed(Duration.zero);
+      await other.setAudioOnly(false);
+      first.complete(repository.media);
+      second.complete(otherRepository.media);
+      await listening;
+      for (final current in [session, other]) {
+        expect(current.audioOnly, isFalse);
+        expect(current.error, isNull);
+      }
+      expect(engine.sources.whereType<ProgressiveSource>(), isEmpty);
+      expect(otherEngine.sources.whereType<ProgressiveSource>(), isEmpty);
+    },
+  );
+
+  test('global choices cannot reopen a source from an old account', () async {
+    var scope = 'guest';
+    final oldEngine = _Engine();
+    final oldRepository = _Repository();
+    final old = PlaybackSession(
+      engine: oldEngine,
+      repository: oldRepository,
+      progress: _Progress(),
+      accountScope: () => scope,
+      listeningMode: listeningMode,
+    );
+    addTearDown(old.close);
+    await old.open(_detail, _part);
+    final opens = oldEngine.sources.length;
+    scope = 'next';
+    await session.open(_detail, _part);
+    await session.setAudioOnly(true);
+    expect(oldEngine.sources.length, opens);
+    expect(old.audioOnly, isFalse);
+    await old.stop();
+    await old.open(_detail, _part);
+    expect(old.audioOnly, isTrue);
+  });
+
+  test(
+    'live playback preserves the global choice for the next video',
+    () async {
+      await session.open(_detail, _part);
+      await session.setAudioOnly(true);
+      repository.media = _media(kind: PlaybackMediaKind.liveHls, audio: false);
+      await session.open(null, null, target: const LivePlaybackTarget('1'));
+      expect(session.error, isNull);
+      expect(session.audioOnly, isFalse);
+      expect(listeningMode.enabled, isTrue);
+      expect(engine.sources.last, isA<ManifestSource>());
+      repository.media = _media();
+      await session.open(_detail, _part);
+      expect(session.audioOnly, isTrue);
+    },
+  );
+
+  test(
+    'return during pending audio resolution rejects late audio source',
+    () async {
+      await session.open(_detail, _part);
+      final pending = Completer<PlaybackMedia>();
+      repository.pending = pending;
+      final listening = session.setAudioOnly(true);
+      await Future<void>.delayed(Duration.zero);
+      await session.setAudioOnly(false);
+      pending.complete(repository.media);
+      await listening;
+      expect(session.audioOnly, isFalse);
+      expect(engine.sources.whereType<ProgressiveSource>(), isEmpty);
+      expect(engine.sources.last, isA<DashPairSource>());
+    },
+  );
+
+  test(
+    'unsupported media never falls back to fetching video while listening',
+    () async {
+      repository.media = _media(
+        kind: PlaybackMediaKind.progressive,
+        audio: false,
+      );
+      await session.open(_detail, _part);
+      expect(session.canListen, isFalse);
+      await session.setAudioOnly(true);
+      expect(session.audioOnly, isFalse);
+      expect(engine.sources, hasLength(1));
+      repository.media = _media();
+      await session.retry();
+      await session.setAudioOnly(true);
+      repository.media = _media(
+        kind: PlaybackMediaKind.progressive,
+        audio: false,
+      );
+      final count = engine.sources.length;
+      await session.retry();
+      expect(session.audioOnly, isTrue);
+      expect(session.error, contains('没有独立音轨'));
+      expect(engine.sources, hasLength(count));
+      await session.setAudioOnly(false);
+      expect(session.error, isNull);
+    },
+  );
+
+  for (final size in [
+    const Size(320, 180),
+    const Size(390, 220),
+    const Size(900, 506),
+    const Size(390, 760),
+  ]) {
+    for (final scale in [1.0, 2.0]) {
+      testWidgets('listening controls remain usable at $size scale=$scale', (
+        tester,
+      ) async {
+        tester.view.devicePixelRatio = 1;
+        tester.view.physicalSize = size;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        await session.open(_detail, _part);
+        await session.setAudioOnly(true);
+        final boundary = GlobalKey();
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: size.width == 900 ? BiliTheme.dark() : BiliTheme.light(),
+            builder: (context, child) => MediaQuery(
+              data: MediaQuery.of(context)
+                  .copyWith(textScaler: TextScaler.linear(scale)),
+              child: child!,
+            ),
+            home: RepaintBoundary(
+              key: boundary,
+              child: ListenableBuilder(
+                listenable: Listenable.merge([session, session.snapshots]),
+                builder: (context, _) => AudioPlaybackView(
+                  session: session,
+                  snapshot: session.snapshots.value,
+                  fullScreen: false,
+                  onFullScreen: () {},
+                  navigation: IconButton(
+                    tooltip: '返回',
+                    onPressed: () {},
+                    icon: const Icon(Icons.arrow_back),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        await tester.tap(find.byKey(const ValueKey('audio-toggle-playing')));
+        await tester.pump();
+        expect(engine.currentSnapshot.desiredPlaying, isFalse);
+        await tester.tap(findMaterialTooltip('前进 10 秒'));
+        await tester.pump();
+        expect(engine.currentSnapshot.position, const Duration(seconds: 10));
+        if (scale == 1 && (size.width == 390 || size.width == 900)) {
+          await tester.runAsync(() async {
+            final image =
+                await (boundary.currentContext!.findRenderObject()!
+                        as RenderRepaintBoundary)
+                    .toImage();
+            final data = await image.toByteData(format: ui.ImageByteFormat.png);
+            final output = File(
+              'build/validation/audio-listening-${size.width.round()}x${size.height.round()}.png',
+            );
+            await output.parent.create(recursive: true);
+            await output.writeAsBytes(data!.buffer.asUint8List());
+            image.dispose();
+          });
+        }
+        await tester.tap(find.byKey(const ValueKey('audio-return-video')));
+        await tester.pumpAndSettle();
+        expect(session.audioOnly, isFalse);
+      });
+    }
+  }
+
+  testWidgets(
+    'listening timeline holds its preview until native seek confirms',
+    (tester) async {
+      await session.open(_detail, _part);
+      await session.setAudioOnly(true);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: ListenableBuilder(
+            listenable: Listenable.merge([session, session.snapshots]),
+            builder: (_, _) => AudioPlaybackView(
+              session: session,
+              snapshot: session.snapshots.value,
+              fullScreen: false,
+              onFullScreen: () {},
+              navigation: const SizedBox.shrink(),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      engine.nextSeek = Completer<void>();
+      await tester.drag(
+        find.byKey(const ValueKey('audio-timeline')),
+        const Offset(100, 0),
+      );
+      await tester.pump();
+      final preview = tester
+          .widget<Slider>(find.byKey(const ValueKey('audio-timeline')))
+          .value;
+      expect(preview, greaterThan(0));
+      expect(engine.currentSnapshot.position, Duration.zero);
+      engine.nextSeek?.complete();
+      await tester.pumpAndSettle();
+      expect(engine.currentSnapshot.position.inMilliseconds, preview.round());
+      await tester.tap(findMaterialTooltip('播放速度'));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.ancestor(
+          of: find.text('2.0x'),
+          matching: find.byType(CheckedPopupMenuItem<double>),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(engine.currentSnapshot.rate, 2);
+      await tester.tap(findMaterialTooltip('听视频选项'));
+      await tester.pumpAndSettle();
+      final volume = find.byType(Slider).last;
+      await tester.drag(volume, const Offset(-40, 0));
+      await tester.pump();
+      expect(engine.currentSnapshot.volume, lessThan(100));
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
+
+  testWidgets(
+    'shared player menu enters listening without a video surface or danmaku',
+    (tester) async {
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [playbackSessionProvider.overrideWithValue(session)],
+          child: InputTestApp(
+            home: Scaffold(
+              body: SizedBox(
+                width: 390,
+                height: 220,
+                child: PlaybackPanel(
+                  detail: _detail,
+                  part: _part,
+                  settings: AppSettings(
+                    autoPlay: true,
+                    resumePlayback: false,
+                    playerControlsMode: PlayerControlsMode.dynamic,
+                  ),
+                  onToggleComments: () {},
+                  window: _Window(),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(findMaterialTooltip(RegExp('^全屏')));
+      await tester.pumpAndSettle();
+      await tester.tap(findMaterialTooltip('听视频'));
+      await tester.pumpAndSettle();
+      expect(find.byType(AudioPlaybackView), findsOneWidget);
+      expect(find.byType(VideoSurface), findsNothing);
+      expect(engine.sources.last, isA<ProgressiveSource>());
+      final opens = engine.sources.length;
+      await tester.tap(findMaterialTooltip('退出全屏'));
+      await tester.pumpAndSettle();
+      expect(session.audioOnly, isTrue);
+      expect(engine.sources.length, opens);
+      await tester.tap(findMaterialTooltip('全屏'));
+      await tester.pumpAndSettle();
+      expect(find.byType(AudioPlaybackView), findsOneWidget);
+      expect(engine.sources.length, opens);
+      await tester.tap(findMaterialTooltip('退出全屏'));
+      await tester.pumpAndSettle();
+      expect(session.audioOnly, isTrue);
+      expect(engine.sources.length, opens);
+      await tester.tap(find.byKey(const ValueKey('audio-return-video')));
+      await tester.pumpAndSettle();
+      expect(find.byType(VideoSurface), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
+}
+
+PlaybackSession _session(
+  _Engine engine,
+  _Repository repository,
+  PlaybackListeningMode listeningMode,
+) => PlaybackSession(
+  engine: engine,
+  repository: repository,
+  contentRepository: _Content(repository),
+  progress: _Progress(),
+  accountScope: () => 'guest',
+  listeningMode: listeningMode,
+)..configureSettings(AppSettings(resumePlayback: false, autoPlay: true));
+
+const _part = VideoPart(
+  cid: 'one',
+  page: 1,
+  title: '第一集',
+  duration: Duration(minutes: 10),
+);
+const _detail = VideoDetail(
+  summary: VideoSummary(
+    id: VideoId('BV1abc123456'),
+    title: '在声音里，继续探索世界',
+    author: '哔帆',
+    coverUrl: '',
+    duration: Duration(minutes: 10),
+  ),
+  description: '',
+  parts: [_part],
+);
+
+PlaybackMedia _media({
+  PlaybackMediaKind kind = PlaybackMediaKind.dash,
+  bool audio = true,
+}) => PlaybackMedia(
+  video: PlaybackTrack(
+    urls: [
+      Uri.parse('https://example.test/video'),
+      Uri.parse('https://backup.test/video'),
+    ],
+    codec: 'avc1',
+    bandwidth: 1000,
+  ),
+  audio: audio
+      ? PlaybackTrack(
+          urls: [
+            Uri.parse('https://example.test/audio'),
+            Uri.parse('https://backup.test/audio'),
+          ],
+          codec: 'mp4a',
+          bandwidth: 128,
+        )
+      : null,
+  quality: 80,
+  qualities: const [64, 80],
+  duration: const Duration(minutes: 10),
+  headers: const {'Referer': 'https://www.bilibili.com/'},
+  kind: kind,
+);
+
+class _Repository extends Fake implements PlaybackRepository {
+  PlaybackMedia media = _media();
+  Completer<PlaybackMedia>? pending;
+  int commentRequests = 0;
+  @override
+  Future<PlaybackMedia> resolve(
+    VideoId target,
+    String cid, {
+    required int quality,
+    VideoCodecPreference preferredCodec = VideoCodecPreference.h264,
+    required RequestCancellation cancellation,
+  }) async {
+    final gate = pending;
+    pending = null;
+    return gate == null ? media : gate.future;
+  }
+
+  @override
+  Future<List<TimedComment>> comments(
+    String cid,
+    int segment, {
+    required RequestCancellation cancellation,
+  }) async {
+    commentRequests++;
+    return [];
+  }
+
+  @override
+  Future<List<SubtitleTrack>> subtitles(
+    VideoId video,
+    String cid, {
+    required RequestCancellation cancellation,
+  }) async => [];
+  @override
+  Future<List<SubtitleCue>> subtitleCues(
+    SubtitleTrack track, {
+    required RequestCancellation cancellation,
+  }) async => [];
+}
+
+class _Content extends Fake implements ContentPlaybackRepository {
+  _Content(this.repository);
+  final _Repository repository;
+  @override
+  Future<PlaybackMedia> resolve(
+    ContentPlaybackTarget target, {
+    required int quality,
+    VideoCodecPreference preferredCodec = VideoCodecPreference.h264,
+    required RequestCancellation cancellation,
+  }) => repository.resolve(
+    _detail.summary.id,
+    _part.cid,
+    quality: quality,
+    preferredCodec: preferredCodec,
+    cancellation: cancellation,
+  );
+}
+
+class _Progress extends Fake implements PlaybackProgressStore {
+  @override
+  Future<void> write(
+    String scope,
+    VideoSummary video,
+    VideoPart part,
+    Duration position,
+    Duration duration, {
+    String? episodeId,
+  }) async {}
+}
+
+class _Engine extends Fake implements PlayerEngine, VideoOutputSource {
+  final events = StreamController<PlaybackSnapshot>.broadcast(sync: true);
+  final errors = StreamController<PlayerFailure>.broadcast(sync: true);
+  final sources = <ResolvedMediaSource>[];
+  bool failNextAudio = false;
+  Completer<void>? nextSeek;
+  PlaybackSnapshot value = const PlaybackSnapshot(
+    phase: PlaybackPhase.idle,
+    generation: 0,
+  );
+  @override
+  PlaybackSnapshot get currentSnapshot => value;
+  @override
+  Stream<PlaybackSnapshot> get snapshots => events.stream;
+  @override
+  Stream<PlayerFailure> get failures => errors.stream;
+  @override
+  late final VideoOutput videoOutput = FakeVideoOutput(
+    () => const ColoredBox(color: Colors.black),
+  );
+  void publish(PlaybackSnapshot next) {
+    value = next;
+    events.add(next);
+  }
+
+  @override
+  Future<void> open(ResolvedMediaSource source, OpenOptions options) async {
+    sources.add(source);
+    if (source is ProgressiveSource && failNextAudio) {
+      failNextAudio = false;
+      throw PlayerFailure(
+        PlayerFailureKind.nativePlayback,
+        'fixture failure',
+        value.generation,
+      );
+    }
+    publish(
+      PlaybackSnapshot(
+        phase: PlaybackPhase.paused,
+        generation: value.generation + 1,
+        position: options.startPosition,
+        duration: const Duration(minutes: 10),
+        rate: options.rate,
+        volume: options.volume,
+        desiredPlaying: options.play,
+      ),
+    );
+  }
+
+  @override
+  Future<void> play() async => publish(
+    value.copyWith(phase: PlaybackPhase.playing, desiredPlaying: true),
+  );
+  @override
+  Future<void> pause() async => publish(
+    value.copyWith(phase: PlaybackPhase.paused, desiredPlaying: false),
+  );
+  @override
+  Future<void> stop() async => publish(
+    PlaybackSnapshot(
+      phase: PlaybackPhase.idle,
+      generation: value.generation + 1,
+    ),
+  );
+  @override
+  Future<void> seek(Duration target) async {
+    await nextSeek?.future;
+    publish(value.copyWith(position: target));
+  }
+
+  @override
+  Future<void> setRate(double rate) async =>
+      publish(value.copyWith(rate: rate));
+  @override
+  Future<void> setVolume(double volume) async =>
+      publish(value.copyWith(volume: volume));
+  @override
+  Future<void> dispose() async {
+    await events.close();
+    await errors.close();
+  }
+}
+
+class _Window extends WindowService {
+  @override
+  bool get hasDesktopWindow => true;
+  @override
+  Future<void> setFullScreen(
+    bool value, {
+    FullScreenOrientation? orientation,
+  }) async {}
+}
+
+class _AndroidWindow extends _Window {
+  @override
+  bool get supportsBackgroundAudio => true;
+  @override
+  bool get hasDesktopWindow => false;
+  @override
+  Stream<FullScreenOrientation> get deviceOrientations => const Stream.empty();
+}
