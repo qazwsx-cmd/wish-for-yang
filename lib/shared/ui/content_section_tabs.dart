@@ -106,14 +106,15 @@ class _ContentSectionTabsState<T extends Object>
                     textStyle: theme.textTheme.labelLarge?.copyWith(
                       fontSize: 13,
                     ),
-                    shape: const StadiumBorder(),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
                     tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   ).copyWith(
                     backgroundColor: WidgetStateProperty.resolveWith(
-                      (states) => widget.value == id
-                          ? colors.primaryContainer
-                          : states.contains(WidgetState.hovered) ||
-                                states.contains(WidgetState.focused)
+                      (states) =>
+                          states.contains(WidgetState.hovered) ||
+                              states.contains(WidgetState.focused)
                           ? colors.surfaceContainerLow
                           : Colors.transparent,
                     ),

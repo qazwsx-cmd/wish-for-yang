@@ -13,6 +13,7 @@ import '../features/feed/domain/home_channel.dart';
 import '../features/search/presentation/search_category_bar.dart';
 import '../features/search/presentation/search_entry_header.dart';
 import '../core/presentation/workspace_activity.dart';
+import '../core/presentation/android_system_ui.dart';
 import '../core/presentation/mobile_playback_status_bar.dart';
 import '../core/presentation/page_back_scope.dart';
 import '../core/presentation/predictive_back_region.dart';
@@ -187,10 +188,9 @@ final class BiliAppShell extends StatefulWidget {
 final class _BiliAppShellState extends State<BiliAppShell>
     with WidgetsBindingObserver {
   static const _bottomNavigationHeight = 52.0;
-  static const _bottomNavigationIconSize = 19.0;
+  static const _bottomNavigationIconSize = 16.0;
   static const _bottomNavigationLabelStyle = TextStyle(
     fontSize: 11,
-    fontWeight: FontWeight.w500,
     height: 1.2,
   );
 
@@ -759,7 +759,7 @@ final class _BiliAppShellState extends State<BiliAppShell>
       ),
     );
     final windowBuilder = widget.playbackWindowBuilder;
-    final presented = HistoryBackRegion(
+    final workspace = HistoryBackRegion(
       enabled: _canGestureBack,
       identity: (
         _backIdentity(_displayTab),
@@ -771,6 +771,12 @@ final class _BiliAppShellState extends State<BiliAppShell>
       onBack: _gestureBack,
       child: _withBackPreview(context, main),
     );
+    final presented = _android
+        ? AndroidPlaybackNavigationBar(
+            playbackVisible: _displayTab.isPlayback,
+            child: workspace,
+          )
+        : workspace;
     if (windowBuilder == null) return presented;
     final playback = _desktopDual
         ? _workspace.tabs
@@ -1339,7 +1345,7 @@ final class _BiliAppShellState extends State<BiliAppShell>
         WorkspaceSection.live =>
           selected ? Icons.live_tv_rounded : Icons.live_tv_outlined,
         WorkspaceSection.mine =>
-          selected ? Icons.face_rounded : Icons.face_outlined,
+          selected ? Icons.person_rounded : Icons.person_outline_rounded,
         WorkspaceSection.messages => Icons.chat_bubble_outline_rounded,
         WorkspaceSection.downloads => Icons.file_download_outlined,
         WorkspaceSection.settings => Icons.tune_rounded,
@@ -1774,10 +1780,10 @@ final class _BiliAppShellState extends State<BiliAppShell>
       labelPadding: EdgeInsets.zero,
       labelTextStyle: WidgetStateProperty.resolveWith((states) {
         final colors = Theme.of(context).colorScheme;
-        final selected = states.contains(WidgetState.selected);
         return _bottomNavigationLabelStyle.copyWith(
-          color: selected ? colors.primary : colors.onSurfaceVariant,
-          fontWeight: selected ? FontWeight.w700 : null,
+          color: states.contains(WidgetState.selected)
+              ? colors.onSurface
+              : colors.onSurfaceVariant,
         );
       }),
       selectedIndex: sections.indexOf(selected),

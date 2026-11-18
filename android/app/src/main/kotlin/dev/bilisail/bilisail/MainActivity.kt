@@ -47,12 +47,13 @@ class MainActivity : AudioServiceActivity() {
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
         updateDisplayMetrics(flutterEngine)
-        mobileWindow?.reapplyFullScreen()
+        mobileWindow?.reapplySystemBars()
     }
 
     override fun onPictureInPictureModeChanged(active: Boolean, newConfig: Configuration) {
         super.onPictureInPictureModeChanged(active, newConfig)
         pictureInPicture?.changed(active)
+        if (!active) mobileWindow?.reapplySystemBars()
     }
 
     private fun updateDisplayMetrics(engine: FlutterEngine?) {
@@ -63,7 +64,7 @@ class MainActivity : AudioServiceActivity() {
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
-        if (hasFocus) mobileWindow?.reapplyFullScreen()
+        if (hasFocus) mobileWindow?.reapplySystemBars()
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {

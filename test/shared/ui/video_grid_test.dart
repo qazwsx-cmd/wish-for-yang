@@ -267,19 +267,16 @@ void main() {
           ),
         ),
       );
-      final title = find.byWidgetPredicate(
-        (widget) =>
-            widget is Text &&
-            widget.data == _videos.first.title &&
-            widget.maxLines == 2,
-      );
       final pointer = await tester.createGesture(kind: PointerDeviceKind.mouse);
       await pointer.addPointer(location: const Offset(500, 500));
       addTearDown(pointer.removePointer);
       await pointer.moveTo(tester.getCenter(find.byType(VideoCard)));
       await tester.pumpAndSettle();
       expect(_borderColor(tester), Colors.transparent);
-      expect(tester.widget<Text>(title).style?.color, BiliTheme.accent);
+      expect(
+        tester.widget<Text>(find.text(_videos.first.title)).style?.color,
+        BiliTheme.accent,
+      );
 
       await pointer.moveTo(tester.getCenter(find.text(_videos.first.author)));
       await tester.pumpAndSettle();
@@ -289,16 +286,19 @@ void main() {
         BiliTheme.accent,
       );
       expect(
-        tester.widget<Text>(title).style?.color,
+        tester.widget<Text>(find.text(_videos.first.title)).style?.color,
         Theme.of(context).colorScheme.onSurface,
       );
       await tester.tap(find.text(_videos.first.author));
       expect(openedUser, const UserId('123'));
       expect(opened, 0);
 
-      await pointer.moveTo(tester.getCenter(title));
+      await pointer.moveTo(tester.getCenter(find.text(_videos.first.title)));
       await tester.pumpAndSettle();
-      expect(tester.widget<Text>(title).style?.color, BiliTheme.accent);
+      expect(
+        tester.widget<Text>(find.text(_videos.first.title)).style?.color,
+        BiliTheme.accent,
+      );
       expect(
         tester.widget<Text>(find.text(_videos.first.author)).style?.color,
         Theme.of(context).textTheme.bodySmall?.color,

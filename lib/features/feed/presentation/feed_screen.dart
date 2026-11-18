@@ -22,7 +22,6 @@ import '../application/app_recommendation_identity.dart';
 import '../domain/home_channel.dart';
 import 'home_content.dart';
 import 'home_channel_swipe.dart';
-import 'home_theme_banner.dart';
 import 'popular_feed.dart';
 import 'feed_video_grid.dart';
 import 'dynamic_author_filter.dart';
@@ -575,20 +574,6 @@ final class _HomeChannelPageState extends ConsumerState<_HomeChannelPage> {
                       controller: scrollController,
                       physics: const AlwaysScrollableScrollPhysics(),
                       slivers: [
-                        if (channel == HomeChannel.recommended)
-                          SliverToBoxAdapter(
-                            child: Padding(
-                              padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-                              child: HomeThemeBanner(
-                                onRefresh:
-                                    feed.selected &&
-                                        !feed.refreshing &&
-                                        !feed.items.isLoading
-                                    ? _refreshFeed
-                                    : null,
-                              ),
-                            ),
-                          ),
                         if (categories?.hasError == true)
                           SliverToBoxAdapter(
                             child: StateView.error(

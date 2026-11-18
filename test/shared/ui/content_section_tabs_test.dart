@@ -171,7 +171,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('large text keeps the compact row and pill selection', (
+  testWidgets('large text keeps the compact row and rounded hover feedback', (
     tester,
   ) async {
     await tester.pumpWidget(
@@ -203,25 +203,20 @@ void main() {
     final style = tester
         .widget<TextButton>(find.byKey(const ValueKey('section-0')))
         .style!;
-    final unselectedStyle = tester
-        .widget<TextButton>(find.byKey(const ValueKey('section-1')))
-        .style!;
     final colors = Theme.of(tester.element(strip)).colorScheme;
-    expect(style.backgroundColor?.resolve({}), colors.primaryContainer);
+    expect(style.backgroundColor?.resolve({}), Colors.transparent);
     expect(
       style.backgroundColor?.resolve({WidgetState.hovered}),
-      colors.primaryContainer,
-    );
-    expect(unselectedStyle.backgroundColor?.resolve({}), Colors.transparent);
-    expect(
-      unselectedStyle.backgroundColor?.resolve({WidgetState.hovered}),
       colors.surfaceContainerLow,
     );
     expect(
       style.overlayColor?.resolve({WidgetState.hovered}),
       Colors.transparent,
     );
-    expect(style.shape?.resolve({}), isA<StadiumBorder>());
+    expect(
+      (style.shape?.resolve({}) as RoundedRectangleBorder).borderRadius,
+      BorderRadius.circular(10),
+    );
     expect(tester.takeException(), isNull);
   });
 }

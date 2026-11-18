@@ -19,26 +19,6 @@ import 'package:bilisail/shared/ui/bili_badges.dart';
 import 'package:bilisail/features/feed/presentation/home_feed_cards.dart';
 
 void main() {
-  testWidgets('the home banner refreshes the active recommendation feed', (
-    tester,
-  ) async {
-    tester.view.devicePixelRatio = 1;
-    tester.view.physicalSize = const Size(320, 760);
-    addTearDown(tester.view.reset);
-    final repository = _FeedRepository(itemCount: 12);
-    await tester.pumpWidget(_app(repository));
-    await tester.pumpAndSettle();
-
-    final refresh = find.widgetWithText(FilledButton, '换一批');
-    expect(refresh.hitTestable(), findsOneWidget);
-    expect(repository.calls, ['recommended:1']);
-    await tester.tap(refresh);
-    await tester.pumpAndSettle();
-
-    expect(repository.calls, ['recommended:1', 'recommended:1']);
-    expect(tester.takeException(), isNull);
-  });
-
   testWidgets(
     'touch channel round-trip keeps cached lists and scroll position',
     (tester) async {

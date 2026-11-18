@@ -653,6 +653,17 @@ class WindowService {
     await _prepareViewToClose?.call();
   }
 
+  static Future<void> setAndroidPlaybackNavigationHidden(bool hidden) async {
+    try {
+      await _mobileWindowChannel.invokeMethod<void>(
+        'setPlaybackNavigationHidden',
+        hidden,
+      );
+    } on MissingPluginException {
+      // There is no native window in Flutter widget tests.
+    }
+  }
+
   Future<void> setFullScreen(
     bool value, {
     FullScreenOrientation? orientation,
@@ -677,15 +688,15 @@ class WindowService {
       _mobileFullScreenRequested = value;
       _mobileFullScreenOrientation = value ? orientation : null;
       await _applyMobileOrientation();
-      await SystemChrome.setEnabledSystemUIMode(
-        value ? SystemUiMode.immersiveSticky : SystemUiMode.edgeToEdge,
-      );
       if (Platform.isAndroid) {
-        // With target SDK 36 Flutter's SystemUiMode stays edge-to-edge. Hide
-        // system bars explicitly through WindowInsetsController instead.
+        // One native owner orders fullscreen and inline playback visibility.
         await _mobileWindowChannel
             .invokeMethod<void>('setFullScreen', value)
             .timeout(const Duration(seconds: 2));
+      } else {
+        await SystemChrome.setEnabledSystemUIMode(
+          value ? SystemUiMode.immersiveSticky : SystemUiMode.edgeToEdge,
+        );
       }
     }
     _fullScreen = value;

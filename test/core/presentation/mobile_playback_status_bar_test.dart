@@ -24,6 +24,17 @@ void main() {
         addTearDown(tester.view.reset);
         addTearDown(tester.view.display.resetSize);
         final styles = <Map<Object?, Object?>>[];
+        final navigationVisibility = <bool>[];
+        const mobileWindow = MethodChannel('bilisail/mobile_window');
+        final messenger = tester.binding.defaultBinaryMessenger;
+        messenger.setMockMethodCallHandler(mobileWindow, (call) async {
+          expect(call.method, 'setPlaybackNavigationHidden');
+          navigationVisibility.add(call.arguments as bool);
+          return null;
+        });
+        addTearDown(
+          () => messenger.setMockMethodCallHandler(mobileWindow, null),
+        );
         tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
           SystemChannels.platform,
           (call) async {
@@ -101,6 +112,7 @@ void main() {
         }
 
         expect(await topPixel(), theme.colorScheme.surface);
+        expect(navigationVisibility, isEmpty);
         for (final path in ['/video/1', '/pgc/1', '/live/1', '/offline/1']) {
           router.go(path);
           await tester.pumpAndSettle();
@@ -118,6 +130,16 @@ void main() {
               dark ? 'Brightness.light' : 'Brightness.dark',
             );
           }
+        }
+        if (theme.platform == TargetPlatform.android) {
+          // Moving among playback types keeps the same native visibility.
+          expect(navigationVisibility, [true]);
+          tester.view.viewInsets = const FakeViewPadding(bottom: 300);
+          await tester.pumpAndSettle();
+          expect(navigationVisibility, [true, false]);
+          tester.view.resetViewInsets();
+          await tester.pumpAndSettle();
+          expect(navigationVisibility, [true, false, true]);
         }
         tester.view.physicalSize = const Size(844, 390);
         tester.view.display.size = const Size(844, 390);
@@ -145,6 +167,12 @@ void main() {
         router.go('/');
         await tester.pumpAndSettle();
         expect(await topPixel(), browseColor);
+        expect(
+          navigationVisibility,
+          theme.platform == TargetPlatform.android
+              ? [true, false, true, false]
+              : isEmpty,
+        );
         expect(tester.takeException(), isNull);
       },
       variant: TargetPlatformVariant({

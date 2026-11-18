@@ -15,7 +15,6 @@ import 'video_card_feedback.dart';
 import 'text_measurement_cache.dart';
 export 'video_card_feedback.dart' show VideoCardFeedback;
 import '../../features/video/domain/video_card_interactions.dart';
-import '../../core/presentation/motion_preferences.dart';
 import '../../core/presentation/workspace_activity.dart';
 
 import 'package:material_ui/material_ui.dart';
@@ -289,29 +288,21 @@ final class _VideoCardState extends State<VideoCard> {
     );
     final highlighted = (_hovered || _focused) && !_authorHovered;
     final progress = widget.progress;
-    final cardRadius = BorderRadius.circular(17);
-    final textInset = cardWidth < 180 ? 4.0 : 8.0;
     return ScrollAwareHoverRegion(
       onHover: (hovered) => _update(() => _hovered = hovered),
       child: AnimatedContainer(
-        duration: shouldReduceMotion(context)
-            ? Duration.zero
-            : const Duration(milliseconds: 120),
+        duration: const Duration(milliseconds: 120),
         decoration: BoxDecoration(
-          borderRadius: cardRadius,
+          borderRadius: BorderRadius.circular(8),
           border: Border.all(
             color: _focused ? scheme.primary : Colors.transparent,
           ),
         ),
         child: Material(
-          color: scheme.surfaceContainerLowest,
-          shape: RoundedRectangleBorder(
-            borderRadius: cardRadius,
-            side: BorderSide(color: scheme.outlineVariant),
-          ),
+          color: Colors.transparent,
+          borderRadius: BorderRadius.circular(7),
           clipBehavior: Clip.none,
           child: InkWell(
-            borderRadius: cardRadius,
             onTap: widget.feedback == null ? () => widget.onTap() : null,
             onLongPress: widget.feedback == null ? _showMenu : null,
             hoverColor: Colors.transparent,
@@ -341,7 +332,6 @@ final class _VideoCardState extends State<VideoCard> {
                     ),
                     null => VideoCardCover(
                       video: video,
-                      borderRadius: 15,
                       showWatchLaterButton: widget.showWatchLaterButton,
                       focused: _focused,
                       hovered: _hovered,
@@ -375,7 +365,7 @@ final class _VideoCardState extends State<VideoCard> {
                                     end: Alignment.bottomCenter,
                                     colors: [
                                       Colors.transparent,
-                                      Color(0xD830193C),
+                                      Color(0xC4000000),
                                     ],
                                   ),
                                 ),
@@ -415,7 +405,7 @@ final class _VideoCardState extends State<VideoCard> {
                   },
                 ),
                 Padding(
-                  padding: EdgeInsets.fromLTRB(textInset, 9, textInset, 1),
+                  padding: const EdgeInsets.only(top: 9, bottom: 1),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -882,8 +872,10 @@ final class _AuthorMetadata extends StatelessWidget {
       message: text,
       child: DecoratedBox(
         decoration: BoxDecoration(
-          color: theme.colorScheme.secondaryContainer,
-          borderRadius: BorderRadius.circular(8),
+          color: const Color(
+            0xFFFF7F50,
+          ).withValues(alpha: theme.brightness == Brightness.dark ? .18 : .1),
+          borderRadius: BorderRadius.circular(3),
         ),
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
@@ -891,10 +883,7 @@ final class _AuthorMetadata extends StatelessWidget {
             text,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              fontSize: 11,
-              color: theme.colorScheme.onSecondaryContainer,
-            ),
+            style: const TextStyle(fontSize: 11, color: Color(0xFFFF7F50)),
           ),
         ),
       ),

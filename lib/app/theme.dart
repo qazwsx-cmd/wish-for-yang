@@ -3,9 +3,9 @@ import 'package:material_ui/material_ui.dart';
 import '../features/settings/domain/app_settings.dart';
 
 abstract final class BiliTheme {
-  static const accent = Color(0xFFAA2A67);
-  static const canvas = Color(0xFFFFF7FC);
-  static const ink = Color(0xFF342038);
+  static const accent = Color(0xFFD94B68);
+  static const canvas = Colors.white;
+  static const ink = Color(0xFF18191C);
 
   static ThemeData light({
     AppFontPreference font = AppFontPreference.harmonyOsSans,
@@ -18,51 +18,42 @@ abstract final class BiliTheme {
 
   static ThemeData _build(Brightness brightness, String? fontFamily) {
     final dark = brightness == Brightness.dark;
-    final surface = dark ? const Color(0xFF251A2D) : canvas;
-    final foreground = dark ? const Color(0xFFFFEDF8) : ink;
-    final muted = dark ? const Color(0xFFBAA0BD) : const Color(0xFF795D7D);
+    final surface = dark ? const Color(0xFF1C2530) : canvas;
+    final foreground = dark ? const Color(0xFFE7E9EB) : ink;
+    final muted = dark ? const Color(0xFFACB8C7) : const Color(0xFF66778A);
     final secondaryText = dark
-        ? const Color(0xFFDDC4DE)
-        : const Color(0xFF6D4C6D);
+        ? const Color(0xFFA2A7AE)
+        : const Color(0xFF61666D);
     final tertiaryText = dark
-        ? const Color(0xFFC4A9C8)
-        : const Color(0xFF795E7D);
-    final panel = dark ? const Color(0xFF34243C) : const Color(0xFFFFEAF5);
-    final border = dark ? const Color(0xFF5D4264) : const Color(0xFFEACFE3);
-    final primary = dark ? const Color(0xFFFFA7D1) : accent;
-    final secondary = dark ? const Color(0xFFDBBFFF) : const Color(0xFF68428D);
+        ? const Color(0xFF757A81)
+        : const Color(0xFF9499A0);
+    final panel = dark ? const Color(0xFF232F3D) : const Color(0xFFF2F6FA);
+    final border = dark ? const Color(0xFF384657) : const Color(0xFFE1E9F1);
+    final primary = dark ? const Color(0xFFEF8399) : accent;
     final scheme =
         ColorScheme.fromSeed(
           seedColor: accent,
           brightness: brightness,
         ).copyWith(
           primary: primary,
-          onPrimary: dark ? const Color(0xFF48112F) : Colors.white,
+          onPrimary: dark ? const Color(0xFF35131C) : Colors.white,
           primaryContainer: dark
-              ? const Color(0xFF55304B)
-              : const Color(0xFFFFDDEC),
+              ? const Color(0xFF442730)
+              : const Color(0xFFFFEFF2),
           onPrimaryContainer: primary,
-          secondary: secondary,
-          onSecondary: dark ? const Color(0xFF35204E) : Colors.white,
-          secondaryContainer: dark
-              ? const Color(0xFF473257)
-              : const Color(0xFFEFE2FF),
-          onSecondaryContainer: secondary,
-          tertiary: dark ? const Color(0xFFA6DDD5) : const Color(0xFF386A65),
+          secondary: primary,
           surface: surface,
           onSurface: foreground,
           onSurfaceVariant: secondaryText,
-          surfaceContainerLowest: dark
-              ? const Color(0xFF211628)
-              : const Color(0xFFFFFCFF),
+          surfaceContainerLowest: surface,
           surfaceContainerLow: panel,
           surfaceContainer: panel,
           surfaceContainerHigh: dark
-              ? const Color(0xFF412D49)
-              : const Color(0xFFF7DDED),
+              ? const Color(0xFF2C3948)
+              : const Color(0xFFEAF1F7),
           surfaceContainerHighest: dark
-              ? const Color(0xFF4E3456)
-              : const Color(0xFFEFD1E5),
+              ? const Color(0xFF334252)
+              : const Color(0xFFE3EDF5),
           outline: muted,
           outlineVariant: border,
         );
@@ -72,21 +63,15 @@ abstract final class BiliTheme {
       colorScheme: scheme,
       fontFamily: fontFamily,
       scaffoldBackgroundColor: dark
-          ? const Color(0xFF1B1222)
-          : const Color(0xFFFFEFF7),
+          ? const Color(0xFF141D27)
+          : const Color(0xFFEDF3F9),
       dividerColor: border,
-      hoverColor: primary.withValues(alpha: 0.06),
-      focusColor: primary.withValues(alpha: 0.12),
-      splashColor: primary.withValues(alpha: 0.10),
+      hoverColor: primary.withValues(alpha: 0.045),
+      focusColor: primary.withValues(alpha: 0.1),
+      splashColor: primary.withValues(alpha: 0.08),
     );
-    const controlShape = StadiumBorder();
-    final panelShape = RoundedRectangleBorder(
-      borderRadius: BorderRadius.circular(22),
-      side: BorderSide(color: border),
-    );
-    final inputBorder = OutlineInputBorder(
-      borderRadius: BorderRadius.circular(18),
-      borderSide: BorderSide(color: border),
+    final controlShape = RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(10),
     );
     return base.copyWith(
       appBarTheme: AppBarTheme(
@@ -104,7 +89,7 @@ abstract final class BiliTheme {
         selectedLabelTextStyle: TextStyle(
           color: primary,
           fontSize: 12,
-          fontWeight: FontWeight.w700,
+          fontWeight: FontWeight.w400,
           height: 17 / 12,
         ),
         unselectedLabelTextStyle: TextStyle(
@@ -118,58 +103,37 @@ abstract final class BiliTheme {
         backgroundColor: surface,
         surfaceTintColor: Colors.transparent,
         indicatorColor: scheme.primaryContainer,
-        indicatorShape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(14),
-          side: BorderSide(color: primary.withValues(alpha: 0.17)),
-        ),
-        iconTheme: WidgetStateProperty.resolveWith(
-          (states) => IconThemeData(
-            color: states.contains(WidgetState.selected)
-                ? primary
-                : secondaryText,
-          ),
-        ),
         elevation: 0,
       ),
       cardTheme: CardThemeData(
-        color: scheme.surfaceContainerLowest,
+        color: panel,
         surfaceTintColor: Colors.transparent,
         elevation: 0,
-        shape: panelShape,
-      ),
-      dialogTheme: DialogThemeData(
-        backgroundColor: scheme.surfaceContainerLowest,
-        surfaceTintColor: Colors.transparent,
-        shape: panelShape,
-      ),
-      bottomSheetTheme: BottomSheetThemeData(
-        backgroundColor: surface,
-        modalBackgroundColor: surface,
-        surfaceTintColor: Colors.transparent,
-        dragHandleColor: scheme.outline,
         shape: RoundedRectangleBorder(
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(26)),
+          borderRadius: BorderRadius.circular(8),
           side: BorderSide(color: border),
         ),
-      ),
-      popupMenuTheme: PopupMenuThemeData(
-        color: scheme.surfaceContainerLowest,
-        surfaceTintColor: Colors.transparent,
-        shape: panelShape,
       ),
       dividerTheme: DividerThemeData(color: border, thickness: 1, space: 1),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: scheme.surfaceContainerLowest,
+        fillColor: surface,
         isDense: true,
         contentPadding: const EdgeInsets.symmetric(
           horizontal: 12,
           vertical: 12,
         ),
-        border: inputBorder,
-        enabledBorder: inputBorder,
-        focusedBorder: inputBorder.copyWith(
-          borderSide: BorderSide(color: primary, width: 1.5),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: BorderSide(color: border),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: BorderSide(color: border),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: BorderSide(color: primary),
         ),
       ),
       filledButtonTheme: FilledButtonThemeData(
@@ -186,18 +150,16 @@ abstract final class BiliTheme {
       ),
       chipTheme: base.chipTheme.copyWith(
         shape: controlShape,
-        backgroundColor: scheme.surfaceContainerLow,
-        selectedColor: scheme.secondaryContainer,
         side: BorderSide(color: border),
       ),
       textTheme: base.textTheme.copyWith(
         headlineMedium: base.textTheme.headlineMedium?.copyWith(
           fontSize: 24,
-          fontWeight: FontWeight.w700,
+          fontWeight: FontWeight.w500,
         ),
         titleLarge: base.textTheme.titleLarge?.copyWith(
           fontSize: 20,
-          fontWeight: FontWeight.w700,
+          fontWeight: FontWeight.w500,
         ),
         titleMedium: base.textTheme.titleMedium?.copyWith(
           fontSize: 16,

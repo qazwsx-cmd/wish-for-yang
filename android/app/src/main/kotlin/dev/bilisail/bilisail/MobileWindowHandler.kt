@@ -22,6 +22,8 @@ class MobileWindowHandler(private val activity: Activity, messenger: BinaryMesse
     private var sink: EventChannel.EventSink? = null
     private var resumed = false
     private var fullScreen = false
+    private var playbackNavigationHidden = false
+    private var immersiveBarsApplied = false
     private var candidate: String? = null
     private var delivered: String? = null
     private var rotationAllowed = false
@@ -70,12 +72,17 @@ class MobileWindowHandler(private val activity: Activity, messenger: BinaryMesse
     init {
         events.setStreamHandler(this)
         commands.setMethodCallHandler { call, result ->
-            if (call.method != "setFullScreen") {
+            if (call.method != "setFullScreen" && call.method != "setPlaybackNavigationHidden") {
                 result.notImplemented()
             } else if (call.arguments !is Boolean) {
-                result.error("invalid_argument", "Expected fullscreen flag", null)
+                result.error("invalid_argument", "Expected a system bar visibility flag", null)
             } else {
-                fullScreen = call.arguments as Boolean
+                val enabled = call.arguments as Boolean
+                if (call.method == "setFullScreen") {
+                    fullScreen = enabled
+                } else {
+                    playbackNavigationHidden = enabled
+                }
                 applySystemBars()
                 result.success(null)
             }
@@ -114,7 +121,7 @@ class MobileWindowHandler(private val activity: Activity, messenger: BinaryMesse
                 sink?.success("reset")
                 updateRotationPolicy()
             }
-            if (fullScreen) applySystemBars()
+            reapplySystemBars()
         } else {
             listener.disable()
             handler.removeCallbacks(publish)
@@ -123,44 +130,51 @@ class MobileWindowHandler(private val activity: Activity, messenger: BinaryMesse
     }
 
     @Suppress("DEPRECATION")
-    fun applySystemBars() {
+    private fun applySystemBars() {
+        if (activity.isInPictureInPictureMode) return
+        val immersive = fullScreen || playbackNavigationHidden
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             activity.window.insetsController?.let { controller ->
-                if (fullScreen) {
-                    controller.systemBarsBehavior = WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-                    controller.hide(WindowInsets.Type.systemBars())
+                controller.systemBarsBehavior = if (immersive) {
+                    WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
                 } else {
-                    controller.show(WindowInsets.Type.systemBars())
+                    WindowInsetsController.BEHAVIOR_DEFAULT
+                }
+                when {
+                    fullScreen -> controller.hide(WindowInsets.Type.systemBars())
+                    playbackNavigationHidden -> {
+                        controller.show(WindowInsets.Type.statusBars())
+                        controller.hide(WindowInsets.Type.navigationBars())
+                    }
+                    else -> controller.show(WindowInsets.Type.systemBars())
                 }
             }
         } else {
             val decor = activity.window.decorView
-            // Preserve Flutter's theme-driven icon colors when changing only
-            // visibility. Otherwise API 26-29 restores white icons on white.
-            val appearance = decor.systemUiVisibility and
-                (View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR or View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR)
-            decor.systemUiVisibility = appearance or if (fullScreen) {
-                View.SYSTEM_UI_FLAG_LAYOUT_STABLE or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
-                    View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_FULLSCREEN or
-                    View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
-            } else {
-                View.SYSTEM_UI_FLAG_LAYOUT_STABLE or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
-                    View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
-            }
+            val ownedFlags = View.SYSTEM_UI_FLAG_FULLSCREEN or
+                View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+            val layoutFlags = View.SYSTEM_UI_FLAG_LAYOUT_STABLE or
+                View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+            val navigationFlags = if (immersive) {
+                View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+            } else 0
+            val statusFlags = if (fullScreen) View.SYSTEM_UI_FLAG_FULLSCREEN else 0
+            decor.systemUiVisibility = (decor.systemUiVisibility and ownedFlags.inv()) or
+                layoutFlags or navigationFlags or statusFlags
         }
+        immersiveBarsApplied = immersive
     }
 
-    fun reapplyFullScreen() {
-        if (fullScreen) applySystemBars()
+    fun reapplySystemBars() {
+        if (fullScreen || playbackNavigationHidden || immersiveBarsApplied) applySystemBars()
     }
 
     fun close() {
         onCancel(null)
         events.setStreamHandler(null)
         commands.setMethodCallHandler(null)
-        if (fullScreen) {
-            fullScreen = false
-            applySystemBars()
-        }
+        fullScreen = false
+        playbackNavigationHidden = false
+        reapplySystemBars()
     }
 }

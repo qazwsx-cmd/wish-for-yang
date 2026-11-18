@@ -62,6 +62,8 @@ void main() {
     }
 
     expectStyle(Brightness.dark);
+    expect(styles.last['statusBarColor'], 0);
+    expect(styles.last['systemStatusBarContrastEnforced'], false);
     navigator.currentState!.push<void>(
       MaterialPageRoute(
         builder: (_) => Scaffold(
@@ -112,8 +114,8 @@ void main() {
         tester.view.devicePixelRatio = 1;
         tester.view.physicalSize = size;
         tester.view.display.size = size;
-        tester.view.padding = const FakeViewPadding(bottom: 24);
-        tester.view.viewPadding = const FakeViewPadding(bottom: 24);
+        tester.view.padding = const FakeViewPadding(top: 24, bottom: 24);
+        tester.view.viewPadding = const FakeViewPadding(top: 24, bottom: 24);
         addTearDown(tester.view.reset);
         addTearDown(tester.view.display.resetSize);
         final theme = dark ? BiliTheme.dark() : BiliTheme.light();
@@ -163,6 +165,8 @@ void main() {
         }
 
         final bottom = size.height.toInt() - 1;
+        expect(pixel(1, 1), theme.colorScheme.surface);
+        expect(pixel(1, 1), pixel(1, 24));
         expect(pixel(1, bottom), theme.colorScheme.surface);
         expect(pixel(1, bottom), pixel(1, bottom - 24));
       },
