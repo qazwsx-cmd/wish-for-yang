@@ -1,0 +1,417 @@
+import '../../../domain/user.dart';
+
+import 'package:material_ui/material_ui.dart';
+
+import '../../../shared/ui/video_card.dart';
+import '../../../domain/video.dart';
+import '../../../shared/ui/app_cover_image.dart';
+import '../../../shared/ui/live_card_cover.dart';
+import '../../../shared/ui/scroll_aware_hover_region.dart';
+import '../../live/domain/live_room.dart';
+import '../domain/home_repository.dart';
+
+final class VideoDynamicCard extends StatelessWidget {
+  const VideoDynamicCard({
+    super.key,
+    required this.entry,
+    required this.onTap,
+    this.onOpenUser,
+  });
+  final ValueChanged<UserId>? onOpenUser;
+  final HomeEntry entry;
+  final VoidCallback onTap;
+  @override
+  Widget build(BuildContext context) =>
+      HomeVideoCard(entry: entry, onTap: onTap, onOpenUser: onOpenUser);
+}
+
+/// Home videos share the same visual contract as feed/search/history videos.
+final class HomeVideoCard extends StatelessWidget {
+  const HomeVideoCard({
+    super.key,
+    required this.entry,
+    required this.onTap,
+    this.onOpenUser,
+    this.menu,
+    this.showWatchLaterButton = true,
+  });
+  final HomeEntry entry;
+  final VoidCallback onTap;
+  final ValueChanged<UserId>? onOpenUser;
+  final VideoCardMenu? menu;
+  final bool showWatchLaterButton;
+
+  @override
+  Widget build(BuildContext context) => VideoCard(
+    video:
+        entry.dynamicPost?.video ??
+        VideoSummary(
+          id: VideoId(entry.bvid ?? entry.id),
+          access: entry.access,
+          previewCid: entry.previewCid,
+          title: entry.title,
+          coverUrl: entry.coverUrl?.toString() ?? '',
+          author: entry.authorName,
+          authorId: UserId.tryParse(entry.authorMid),
+          duration: entry.duration ?? Duration.zero,
+          publishedAt: entry.publishedAt,
+        ),
+    playCountText: entry.playCountText,
+    danmakuCountText: entry.danmakuCountText,
+    publishText: entry.publishText,
+    onOpenUser: onOpenUser,
+    onTap: onTap,
+    menu: menu,
+    showWatchLaterButton: showWatchLaterButton,
+  );
+}
+
+final class FavoriteFolderCard extends StatefulWidget {
+  const FavoriteFolderCard({
+    super.key,
+    required this.entry,
+    required this.onTap,
+    this.onUnsubscribe,
+    this.unsubscribing = false,
+    this.showCreatedMetadata = false,
+    this.onEdit,
+    this.onDelete,
+  });
+  final HomeEntry entry;
+  final VoidCallback onTap;
+  final VoidCallback? onUnsubscribe;
+  final bool unsubscribing;
+  final bool showCreatedMetadata;
+  final VoidCallback? onEdit;
+  final VoidCallback? onDelete;
+
+  @override
+  State<FavoriteFolderCard> createState() => _FavoriteFolderCardState();
+}
+
+final class _FavoriteFolderCardState extends State<FavoriteFolderCard> {
+  final _menuKey = GlobalKey<PopupMenuButtonState<String>>();
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(6),
+      child: InkWell(
+        onTap: widget.onTap,
+        onLongPress:
+            !widget.unsubscribing &&
+                (widget.onUnsubscribe != null ||
+                    widget.onEdit != null ||
+                    widget.onDelete != null)
+            ? () => _menuKey.currentState?.showButtonMenu()
+            : null,
+        borderRadius: BorderRadius.circular(6),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Stack(
+              children: [
+                Positioned(
+                  top: 0,
+                  left: 28,
+                  right: 28,
+                  height: 22,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: scheme.onSurface.withValues(alpha: .10),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                ),
+                Positioned(
+                  top: 8,
+                  left: 16,
+                  right: 16,
+                  height: 22,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: scheme.onSurface.withValues(alpha: .18),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.only(top: 18),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(6),
+                    child: AspectRatio(
+                      aspectRatio: 16 / 9,
+                      child: _Cover(
+                        url: widget.entry.coverUrl,
+                        left: [
+                          if (widget.entry.contentCount != null)
+                            '${widget.entry.contentCount}个内容',
+                          if (widget.showCreatedMetadata)
+                            if (widget.entry.isPrivate == true)
+                              '私密'
+                            else if (widget.entry.isPrivate == false)
+                              '公开',
+                        ].join(' '),
+                        right: widget.showCreatedMetadata
+                            ? ''
+                            : widget.entry.kind == HomeEntryKind.collection
+                            ? '合集'
+                            : '收藏夹',
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 9),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (widget.showCreatedMetadata &&
+                    widget.entry.isPrivate == true) ...[
+                  const Padding(
+                    padding: EdgeInsets.only(top: 2),
+                    child: Tooltip(
+                      message: '私密收藏夹',
+                      child: Icon(Icons.lock, size: 16),
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                ],
+                Expanded(
+                  child: Text(
+                    widget.entry.title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.titleSmall,
+                  ),
+                ),
+                if (widget.onUnsubscribe != null ||
+                    widget.onEdit != null ||
+                    widget.onDelete != null)
+                  PopupMenuButton<String>(
+                    key: _menuKey,
+                    tooltip: widget.unsubscribing
+                        ? widget.onDelete != null
+                              ? '删除中'
+                              : '取消订阅中'
+                        : '更多操作',
+                    enabled: !widget.unsubscribing,
+                    padding: EdgeInsets.zero,
+                    iconSize: 20,
+                    iconColor: scheme.onSurfaceVariant,
+                    style: IconButton.styleFrom(
+                      fixedSize: const Size(32, 28),
+                      minimumSize: const Size(32, 28),
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                    constraints: const BoxConstraints(
+                      minWidth: 140,
+                      maxWidth: 240,
+                    ),
+                    position: PopupMenuPosition.under,
+                    color: scheme.surface,
+                    surfaceTintColor: Colors.transparent,
+                    elevation: 3,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                      side: BorderSide(
+                        color: scheme.outlineVariant.withValues(alpha: .6),
+                      ),
+                    ),
+                    icon: widget.unsubscribing
+                        ? const SizedBox.square(
+                            dimension: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.more_vert),
+                    onSelected: (action) {
+                      if (action == 'edit') widget.onEdit?.call();
+                      if (action == 'unsubscribe') widget.onUnsubscribe?.call();
+                      if (action == 'delete') widget.onDelete?.call();
+                    },
+                    itemBuilder: (_) => [
+                      if (widget.onDelete != null)
+                        const PopupMenuItem(
+                          value: 'delete',
+                          padding: EdgeInsets.symmetric(horizontal: 24),
+                          child: Text('删除收藏夹'),
+                        ),
+                      if (widget.onEdit != null)
+                        PopupMenuItem(
+                          value: 'edit',
+                          padding: const EdgeInsets.symmetric(horizontal: 24),
+                          child: Text(
+                            '编辑信息',
+                            style: Theme.of(context).textTheme.bodyMedium,
+                          ),
+                        ),
+                      if (widget.onUnsubscribe != null)
+                        PopupMenuItem(
+                          value: 'unsubscribe',
+                          padding: const EdgeInsets.symmetric(horizontal: 24),
+                          child: Text(
+                            '取消订阅',
+                            style: Theme.of(context).textTheme.bodyMedium,
+                          ),
+                        ),
+                    ],
+                  ),
+              ],
+            ),
+            if (widget.showCreatedMetadata) ...[
+              const SizedBox(height: 12),
+              Text(
+                switch (widget.entry.createdAt) {
+                  final date? => '创建于${_date(date.toLocal())}',
+                  null => '创建时间未知',
+                },
+                style: Theme.of(context).textTheme.bodySmall
+                    ?.copyWith(color: scheme.onSurfaceVariant),
+              ),
+            ] else if (widget.entry.viewCount != null) ...[
+              const SizedBox(height: 12),
+              Text(
+                '${compactCount(widget.entry.viewCount)}播放',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+String _date(DateTime date) =>
+    '${date.year.toString().padLeft(4, '0')}-'
+    '${date.month.toString().padLeft(2, '0')}-'
+    '${date.day.toString().padLeft(2, '0')}';
+
+final class LiveRoomCard extends StatefulWidget {
+  const LiveRoomCard({super.key, required this.entry, required this.onTap});
+  final HomeEntry entry;
+  final VoidCallback onTap;
+  @override
+  State<LiveRoomCard> createState() => _LiveRoomCardState();
+}
+
+final class _LiveRoomCardState extends State<LiveRoomCard> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) => ScrollAwareHoverRegion(
+    onHover: (hovered) => setState(() => _hovered = hovered),
+    child: Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () {
+          setState(() => _hovered = false);
+          widget.onTap();
+        },
+        borderRadius: BorderRadius.circular(6),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            AspectRatio(
+              aspectRatio: 16 / 9,
+              child: LiveCardCover(
+                roomId: RoomId(widget.entry.id),
+                hovered: _hovered,
+                child: _Cover(
+                  url: widget.entry.coverUrl,
+                  left: widget.entry.popularityText.trim().isEmpty
+                      ? ''
+                      : '♨ ${compactCountLabel(null, widget.entry.popularityText)}',
+                  right: widget.entry.areaName,
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              widget.entry.title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.titleSmall,
+            ),
+            const SizedBox(height: 4),
+            Text(
+              widget.entry.authorName.isEmpty
+                  ? widget.entry.subtitle
+                  : widget.entry.authorName,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+final class _Cover extends StatelessWidget {
+  const _Cover({this.url, this.left = '', this.right = ''});
+  final Uri? url;
+  final String left;
+  final String right;
+  @override
+  Widget build(BuildContext context) => Stack(
+    fit: StackFit.expand,
+    children: [
+      ColoredBox(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        child: url == null
+            ? const Center(child: Icon(Icons.image_outlined))
+            : AppCoverImage(
+                url: url.toString(),
+                frameBuilder: (_, child, frame, _) => frame != null
+                    ? child
+                    : const Center(child: Icon(Icons.image_outlined)),
+                fit: BoxFit.cover,
+                errorBuilder: (_, _, _) =>
+                    const Center(child: Icon(Icons.image_outlined)),
+              ),
+      ),
+      Positioned(
+        left: 0,
+        right: 0,
+        bottom: 0,
+        child: Container(
+          padding: const EdgeInsets.all(7),
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [Colors.transparent, Colors.black54],
+            ),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  left,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: Colors.white, fontSize: 12),
+                ),
+              ),
+              if (right.isNotEmpty)
+                Expanded(
+                  child: Text(
+                    right,
+                    textAlign: TextAlign.end,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: Colors.white, fontSize: 12),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    ],
+  );
+}
